@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NotesApp Kiswahili demo</title>
+<style>
+:root{--crimson:#a6093d;--ink:#1a1210;--paper:#fbf6f2;--rule:#e2d9d3;--slate:#6b625d}
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{background:linear-gradient(160deg,#4e0119,#7a0328);color:#fff;padding:20px 16px}header b{font-size:20px}header p{margin:4px 0 0;opacity:.8;font-size:14px}
+main{max-width:860px;margin:0 auto;padding:16px}
+section{background:#fff;border:1px solid var(--rule);border-radius:16px;padding:16px;margin:16px 0}
+h2{font:600 22px Georgia,serif;margin:0 0 8px}label{font-size:13px;font-weight:600;display:block;margin:10px 0 4px}
+input,textarea{width:100%;border:1px solid var(--rule);border-radius:10px;padding:10px;font:inherit}textarea{min-height:140px}
+button{border:1px solid var(--crimson);background:var(--crimson);color:#fff;border-radius:99px;padding:8px 16px;font:600 14px system-ui;cursor:pointer;margin:8px 8px 0 0}
+button.ghost{background:#fff;color:var(--crimson)}button:disabled{opacity:.5}
+.sw{margin-top:12px;border-top:1px solid var(--rule);padding-top:12px}.sw h3{font:600 20px Georgia,serif;margin:0}.sw p{margin:8px 0}
+.note{font-size:13px;color:var(--slate)}.err{color:#b91c1c;font-size:14px}.tag{font:600 11px ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase;color:var(--slate)}
+table{width:100%;border-collapse:collapse;font-size:13px}td,th{text-align:left;padding:6px;border-bottom:1px solid var(--rule)}
+</style></head><body>
+<header><b>na · NotesApp in Kiswahili</b><p>Journals and voice notes in Kiswahili, with the NKENNEAi API. Everything made is kept, so asking twice costs nothing.</p></header>
+<main>
+<section>
+  <h2>1 · Read a journal in Kiswahili</h2>
+  <label for="title">Title</label><input id="title" value="Five questions to ask before you book a therapist">
+  <label for="md">Journal (Markdown)</label>
+  <textarea id="md">Short, honest answers from three therapists who take bookings on #NotesApp.
+
+## What happens in the first session?
+
+Most first sessions are about getting to know you. Ask how long it lasts and what it costs.
+
+- Ask about fees
+- Ask about privacy</textarea>
+  <button id="tr">🌍 Kiswahili</button><span class="note" id="trnote"></span>
+  <div id="out" class="sw" lang="sw" hidden></div>
+</section>
+<section>
+  <h2>2 · Sikiliza: listen in Kiswahili</h2>
+  <p class="note">Reads the translation above, part by part; each part is made only when it's reached.</p>
+  <button id="female" class="ghost">▶ Female voice</button><button id="male" class="ghost">▶ Male voice</button>
+  <span class="note">Speed: <select id="rate"><option>0.75</option><option selected>1</option><option>1.25</option></select></span>
+  <audio id="player" controls style="width:100%;margin-top:10px"></audio><p class="note" id="plnote"></p>
+</section>
+<section>
+  <h2>3 · Voice notes</h2>
+  <p class="note">Record or choose a short voice note (up to 2 minutes). The page turns it into 16 kHz mono WAV, the format NKENNEAi recommends.</p>
+  <button id="rec" class="ghost">● Record</button><input id="file" type="file" accept="audio/*" style="width:auto;border:0">
+  <audio id="vn" controls style="width:100%;margin-top:10px" hidden></audio>
+  <div><button data-mode="transcript" disabled>Kiswahili transcript</button><button data-mode="to-english" disabled>Swahili → English</button><button data-mode="to-swahili" disabled>English → Kiswahili</button></div>
+  <div id="vnout"></div>
+</section>
+<section>
+  <h2>Token use</h2>
+  <p class="note">Every call this demo made to NKENNEAi, and how often it answered from what it kept instead.</p>
+  <p id="usum"></p><table id="utab"></table>
+</section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+// Text from the API is shown as text, never as markup.
+const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const api = async (path, init) => { const r = await fetch(path, init); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'That didn\'t work.'); return j; };
+let parts = [];
+$('tr').onclick = async () => {
+  $('tr').disabled = true; $('trnote').textContent = ' Translating…';
+  try {
+    const r = await api('/api/translate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: $('title').value, markdown: $('md').value }) });
+    parts = r.parts || [];
+    const out = $('out'); out.hidden = false; out.innerHTML = '';
+    const h = document.createElement('h3'); h.textContent = r.title; out.append(h);
+    for (const b of r.blocks) { const p = document.createElement(b.kind.startsWith('h') ? 'h4' : 'p'); p.textContent = (b.kind === 'li' ? '• ' : '') + b.text; out.append(p); }
+    $('trnote').textContent = r.fromKept ? ' From what was kept: no tokens used.' : ` Translated in ${r.calls} call${r.calls === 1 ? '' : 's'}.`;
+  } catch (e) { $('trnote').innerHTML = ` <span class="err">${esc(e.message)}</span>`; }
+  $('tr').disabled = false; usage();
+};
+async function play(voice, i = 0) {
+  if (!parts.length) { $('plnote').textContent = 'Translate the journal first.'; return; }
+  $('plnote').textContent = `Part ${i + 1} of ${parts.length}…`;
+  try {
+    const r = await api('/api/speak', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: parts[i], voice }) });
+    const a = $('player'); a.src = r.url; a.playbackRate = Number($('rate').value); await a.play().catch(() => {});
+    $('plnote').textContent = `Part ${i + 1} of ${parts.length}${r.fromKept ? ' · kept, no tokens' : ''}`;
+    a.onended = () => { if (i + 1 < parts.length) play(voice, i + 1); };
+  } catch (e) { $('plnote').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+  usage();
+}
+$('female').onclick = () => play('female'); $('male').onclick = () => play('male');
+$('rate').onchange = () => { $('player').playbackRate = Number($('rate').value); };
+
+// Voice notes → 16 kHz mono 16-bit WAV (the same steps as src/wav.ts)
+let wav = null;
+function encodeWav(s, rate) { const b = new ArrayBuffer(44 + s.length * 2), v = new DataView(b), w = (o, t) => { for (let i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i)); };
+  w(0, 'RIFF'); v.setUint32(4, 36 + s.length * 2, true); w(8, 'WAVE'); w(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, s.length * 2, true);
+  for (let i = 0; i < s.length; i++) { const x = Math.max(-1, Math.min(1, s[i])); v.setInt16(44 + i * 2, x < 0 ? x * 0x8000 : x * 0x7fff, true); } return b; }
+async function toWav(buf) { const ctx = new AudioContext(); const d = await ctx.decodeAudioData(buf); ctx.close();
+  const mono = new Float32Array(d.length); for (let c = 0; c < d.numberOfChannels; c++) d.getChannelData(c).forEach((x, i) => { mono[i] += x / d.numberOfChannels; });
+  const ratio = d.sampleRate / 16000, n = Math.floor(mono.length / ratio), out = new Float32Array(n);
+  for (let i = 0; i < n; i++) { const a = Math.floor(i * ratio), b = Math.min(mono.length, Math.floor((i + 1) * ratio)); let s = 0; for (let j = a; j < b; j++) s += mono[j]; out[i] = b > a ? s / (b - a) : 0; }
+  return new Blob([encodeWav(out, 16000)], { type: 'audio/wav' }); }
+async function useAudio(blob) { wav = await toWav(await blob.arrayBuffer()); const a = $('vn'); a.hidden = false; a.src = URL.createObjectURL(blob); document.querySelectorAll('[data-mode]').forEach((b) => { b.disabled = false; }); }
+$('file').onchange = (e) => { const f = e.target.files[0]; if (f) useAudio(f).catch((er) => { $('vnout').innerHTML = `<p class="err">${esc(er.message)}</p>`; }); };
+let rec = null;
+$('rec').onclick = async () => {
+  if (rec) { rec.stop(); return; }
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true }); const chunks = [];
+  rec = new MediaRecorder(stream); rec.ondataavailable = (e) => chunks.push(e.data);
+  rec.onstop = () => { stream.getTracks().forEach((t) => t.stop()); rec = null; $('rec').textContent = '● Record'; useAudio(new Blob(chunks, { type: chunks[0]?.type || 'audio/webm' })); };
+  rec.start(); $('rec').textContent = '■ Stop';
+};
+document.querySelectorAll('[data-mode]').forEach((b) => { b.onclick = async () => {
+  if (!wav) return; b.disabled = true;
+  try { const r = await api(`/api/voice?mode=${b.dataset.mode}`, { method: 'POST', headers: { 'Content-Type': 'audio/wav' }, body: wav });
+    const p = document.createElement('p'); p.innerHTML = `<span class="tag">${esc(b.textContent)}${r.fromKept ? ' · kept' : ''}</span><br>`; p.append(r.text); $('vnout').prepend(p);
+  } catch (e) { $('vnout').innerHTML = `<p class="err">${esc(e.message)}</p>` + $('vnout').innerHTML; }
+  b.disabled = false; usage(); }; });
+
+async function usage() { const u = await api('/api/usage').catch(() => null); if (!u) return;
+  $('usum').textContent = `${u.calls.length} call${u.calls.length === 1 ? '' : 's'} to NKENNEAi · ${u.kept} answered from what was kept (no tokens) · ${u.calls.filter((c) => !c.ok).length} failed`;
+  $('utab').innerHTML = '<tr><th>When</th><th>API</th><th>Size</th><th>Result</th></tr>' + u.calls.slice(-15).reverse().map((c) => `<tr><td>${new Date(c.at).toLocaleTimeString()}</td><td>${esc(c.api)}</td><td>${esc(c.size)}</td><td>${c.ok ? '200 · ' + c.ms + ' ms' : (c.status || 'no answer') + (c.detail ? ' · ' + esc(c.detail.slice(0, 80)) : '')}</td></tr>`).join(''); }
+usage();
+</script></body></html>
