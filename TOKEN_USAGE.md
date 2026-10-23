@@ -9,7 +9,7 @@ The NKENNEAi API Hackathon gives each team 1,000 tokens. This is how we spent ou
 
 ## Live calls
 
-From the usage log (`.cache/usage.json` in the demo), 23 October 2026. Balance before the first live call: 1,050 tokens. Balance after these calls: [from the NKENNEAi dashboard].
+From the usage log (`.cache/usage.json` in the demo), 23 October 2026. Balance before the first live call: 1,050 tokens. Balance after these calls: 333 tokens, so 717 tokens were used.
 
 | Time (WAT) | API | What for | Size | Calls | Result |
 |---|---|---|---|---|---|
@@ -22,6 +22,7 @@ From the usage log (`.cache/usage.json` in the demo), 23 October 2026. Balance b
 | – | Kept answers | The translation and the audio, asked for again | – | 0 | 2 answers served from what was kept, no tokens. |
 
 **What we learned and changed:**
-- **Grouping:** NKENNEAi merges paragraph breaks in a translation, so a journal sent as one request can't be split back into its blocks. Each grouped attempt cost a call before falling back to one call per block. Next: mark the blocks in a way the translation keeps, or translate block by block from the start for short journals.
+- **Grouping (fixed):** NKENNEAi merges paragraph breaks in a translation, so a journal sent as one request couldn't be split back into its blocks. Each grouped attempt was a wasted call before falling back to one call per block. Journals are now translated block by block from the start.
 - **Answer shape:** the client now accepts the field names the API actually returns and keeps the answer in the log when it has no text, so a surprise costs one call, not several.
+- **Where the tokens went:** NKENNEAi's Generation History shows text to speech at 166 tokens per request, so speech is most of the cost. Kept audio is reused for every later listener, and audio is made part by part only as far as people listen.
 - **Their errors:** a 500 from NKENNEAi isn't retried automatically. Every call costs tokens, so the member chooses to try again.

@@ -1,13 +1,12 @@
 // Kiswahili versions of #NotesApp journals (pure: the server side is lib/kiswahili-server.ts, the API client lib/nkenne.ts).
 //
 // A journal is Markdown. Only its words go to NKENNEAi: it is read into blocks (headings, paragraphs, list items, quotes),
-// with images, code and link addresses left out, so no markup can be mangled by a translation. Blocks are sent a few at a
-// time, joined by blank lines; if a translation doesn't come back with the same number of paragraphs, that group is sent
-// again one block at a time, so every block lines up with its own translation.
+// with images, code and link addresses left out, so no markup can be mangled by a translation. Each block is sent on its
+// own: NKENNEAi merges paragraph breaks in a translation, so blocks sent together can't be lined up again (found in live
+// testing, 23 Oct 2026), and a grouped request was a wasted call every time.
 // Audio is made in parts of about a minute, each the first time someone listens that far, so a reader who stops early never
 // costs the rest. Everything made is kept for every later reader (and made again only when the journal changes).
 export type Block = { kind: "h1" | "h2" | "h3" | "p" | "li" | "quote"; text: string };
-export const GROUP_CHARS = 1_200; // per translation request
 export const PART_CHARS = 700; // per audio part (about a minute of speech)
 export const MAX_SOURCE_CHARS = 20_000; // longer journals are translated up to here, and say so
 
@@ -57,36 +56,11 @@ export function sourceOf(title: string, markdown: string): { title: string; bloc
   return { title, blocks, cut: false };
 }
 
-// Consecutive blocks, a few at a time: each group is at most GROUP_CHARS (a longer block goes on its own).
-export function groupsOf(texts: string[], max = GROUP_CHARS): number[][] {
-  const groups: number[][] = [];
-  let cur: number[] = [], size = 0;
-  texts.forEach((t, i) => {
-    if (cur.length && size + t.length + 2 > max) { groups.push(cur); cur = []; size = 0; }
-    cur.push(i); size += t.length + 2;
-  });
-  if (cur.length) groups.push(cur);
-  return groups;
-}
-// A group's translation back into its blocks; null when the paragraph count doesn't match (then each block goes alone).
-export function splitBack(translated: string, count: number): string[] | null {
-  const parts = translated.replace(/\r\n?/g, "\n").split(/\n\s*\n/).map((s) => s.trim()).filter(Boolean);
-  return parts.length === count ? parts : null;
-}
-
-// Translate every text with as few requests as the rules above allow. `translate` is one NKENNEAi call.
+// Translate every text, one NKENNEAi call each (`translate`), in order.
 export async function translateAll(texts: string[], translate: (text: string) => Promise<string>): Promise<{ out: string[]; calls: number }> {
-  const out: string[] = new Array(texts.length).fill("");
-  let calls = 0;
-  for (const g of groupsOf(texts)) {
-    if (g.length > 1) {
-      calls++;
-      const back = splitBack(await translate(g.map((i) => texts[i]).join("\n\n")), g.length);
-      if (back) { g.forEach((i, k) => { out[i] = back[k]; }); continue; }
-    }
-    for (const i of g) { calls++; out[i] = (await translate(texts[i])).trim(); }
-  }
-  return { out, calls };
+  const out: string[] = [];
+  for (const t of texts) out.push((await translate(t)).trim());
+  return { out, calls: texts.length };
 }
 
 // What is read aloud, in parts: the title, then the blocks, cut at sentence ends where a block is long.

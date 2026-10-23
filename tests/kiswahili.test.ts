@@ -1,7 +1,7 @@
 // Kiswahili journals (lib/kiswahili.ts), the NKENNEAi client (lib/nkenne.ts) and the WAV encoder (lib/wav.ts). The API is a
 // stand-in `fetch` here (no network, no tokens): these test our side of each call. Run: npm run test:kiswahili → "ALL OK".
 import assert from "node:assert/strict";
-import { audioParts, blocksOf, groupsOf, plainInline, sourceOf, splitBack, translateAll, MAX_SOURCE_CHARS } from "../src/kiswahili";
+import { audioParts, blocksOf, plainInline, sourceOf, translateAll, MAX_SOURCE_CHARS } from "../src/kiswahili";
 import { NkenneError, speak, transcribe, translateSpeech, translateText, voices } from "../src/nkenne";
 import { encodeWav, resample, wavSeconds } from "../src/wav";
 
@@ -16,16 +16,10 @@ import { encodeWav, resample, wavSeconds } from "../src/wav";
   const long = sourceOf("T", Array.from({ length: 50 }, () => "word ".repeat(100)).join("\n\n"));
   assert.equal(long.cut, true); assert.ok(long.blocks.reduce((n, b) => n + b.text.length, 0) <= MAX_SOURCE_CHARS);
 
-  // grouping and lining translations back up
-  assert.deepEqual(groupsOf(["a".repeat(500), "b".repeat(500), "c".repeat(500)], 1200), [[0, 1], [2]]);
-  assert.deepEqual(groupsOf(["x".repeat(2000), "y"], 1200), [[0], [1]], "a long block goes alone");
-  assert.deepEqual(splitBack("Moja\n\nMbili", 2), ["Moja", "Mbili"]); assert.equal(splitBack("Moja Mbili", 2), null);
-  let asked: string[] = [];
-  const tidy = await translateAll(["One", "Two", "Three"], async (t) => { asked.push(t); return t.split("\n\n").map((s) => `sw:${s}`).join("\n\n"); });
-  assert.deepEqual(tidy, { out: ["sw:One", "sw:Two", "sw:Three"], calls: 1 }, "three short blocks, one call");
-  asked = [];
-  const messy = await translateAll(["One", "Two"], async (t) => { asked.push(t); return t.includes("\n\n") ? "sw:One sw:Two" : `sw:${t}`; });
-  assert.deepEqual(messy, { out: ["sw:One", "sw:Two"], calls: 3 }, "paragraphs merged: each block again, alone");
+  // one call per block, in order (NKENNEAi merges paragraph breaks, so blocks are never sent together)
+  const asked: string[] = [];
+  const done = await translateAll(["One", "Two", "Three"], async (t) => { asked.push(t); return ` sw:${t} `; });
+  assert.deepEqual(done, { out: ["sw:One", "sw:Two", "sw:Three"], calls: 3 }); assert.deepEqual(asked, ["One", "Two", "Three"]);
 
   // audio parts: title first, never over the limit, long blocks cut at sentence ends
   const parts = audioParts("Kichwa", ["Sentensi ya kwanza. Sentensi ya pili.", "x".repeat(900)], 300);

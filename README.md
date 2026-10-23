@@ -40,7 +40,7 @@ All four APIs, Kiswahili only, as the hackathon allows. The client is [`src/nken
 ### What happens to a journal
 
 1. **Words only.** The journal is Markdown. [`src/kiswahili.ts`](src/kiswahili.ts) reads it into blocks (headings, paragraphs, list items, quotes) and leaves out images, code and link addresses, so a translation can never break the page's markup.
-2. **A few blocks per request.** Blocks go in groups of up to 1,200 characters, joined by blank lines, and the translation is split back on blank lines. A short journal is usually one request. If a group doesn't come back with the same number of paragraphs, only that group is sent again, one block at a time, so every block lines up with its own translation.
+2. **One request per block.** Each heading, paragraph and list item is translated on its own. We first sent a few blocks per request and split the answer back on blank lines, but live testing showed NKENNEAi merges paragraph breaks, so every grouped request was a wasted call. One block per request lines up every time.
 3. **Audio in parts.** The translation is cut into parts of about a minute (around 700 characters, at sentence ends). Each part is made only when the listener reaches it, with the next one fetched just before, so a reader who stops after a minute never costs the rest.
 4. **Made once, kept for everyone.** The translation is kept under a hash of the journal's words, and each audio part per voice is kept in our media storage. The second reader, and every reader after, costs no tokens. When the author edits the journal, the hash changes and a fresh version is made the next time someone asks.
 5. **No double charge.** If two readers open a new journal at the same moment, only the first one translates; the other is asked to wait a few seconds.
@@ -73,7 +73,7 @@ We were given 1,000 tokens. The design spends them only when someone asks, and o
 
 - Nothing is translated or read aloud until a reader taps.
 - Authors choose which journals are offered; the switch is off by default.
-- Each journal is translated in as few requests as its length allows.
+- Each block is translated once, on its own, so nothing is sent twice.
 - Audio is made part by part, as far as people actually listen.
 - Speed changes happen in the player, so they cost nothing.
 - Everything made is kept and reused.
