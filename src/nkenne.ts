@@ -46,16 +46,33 @@ async function send(cfg: NkenneConfig, path: string, init: RequestInit): Promise
 }
 async function json<T>(res: Response): Promise<T> {
   const t = await res.text();
-  try { return JSON.parse(t) as T; } catch { throw new NkenneError("The translation service sent something we couldn't read.", res.status, t.slice(0, 300)); }
+  try { return JSON.parse(t) as T; } catch { throw new NkenneError("The translation service sent something we couldn't read.", 502, t.slice(0, 300)); }
+}
+// The text in an answer: the documented field first, then the other names the API has used, at the top or under data/result.
+// Nothing usable is a failure (502, not the 200 the API sent), with the answer kept for the usage log.
+export function textIn(body: unknown, fields: string[]): string {
+  const look = (o: unknown): string => {
+    if (typeof o === "string") return o.trim();
+    if (!o || typeof o !== "object") return "";
+    const r = o as Record<string, unknown>;
+    for (const f of fields) if (typeof r[f] === "string" && (r[f] as string).trim()) return (r[f] as string).trim();
+    for (const k of ["data", "result", "response"]) { const x = look(r[k]); if (x) return x; }
+    return "";
+  };
+  return look(body);
+}
+const TEXT_FIELDS = ["translatedText", "translated_text", "translation", "translatedtext", "text", "output"];
+function needText(body: unknown, fields = TEXT_FIELDS): string {
+  const out = textIn(body, fields);
+  if (!out) throw new NkenneError("The translation came back empty.", 502, JSON.stringify(body).slice(0, 300));
+  return out;
 }
 
 // English ↔ Swahili text. One of the two must be English (the API has no other pairs).
 export async function translateText(cfg: NkenneConfig, text: string, from: Lang, to: Lang): Promise<string> {
   if (from === to) throw new NkenneError("Choose two different languages.", 400);
   const res = await send(cfg, "/api/translate/with-api-key", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, fromLanguage: from, toLanguage: to }) });
-  const out = (await json<{ translatedText?: unknown }>(res)).translatedText;
-  if (typeof out !== "string" || !out.trim()) throw new NkenneError("The translation came back empty.", res.status);
-  return out;
+  return needText(await json<unknown>(res));
 }
 
 // Swahili speech for some text: the audio bytes and their type (audio/mpeg or audio/wav).
@@ -81,13 +98,12 @@ function form(audio: Blob, name: string) {
 }
 // What was said, in the language it was said in.
 export async function transcribe(cfg: NkenneConfig, audio: Blob, lang: "swahili" | "english", name = "voice-note.wav"): Promise<{ text: string; duration: number | null }> {
-  const r = await json<{ text?: unknown; duration?: unknown }>(await send(cfg, `/api/stt/v1/${lang}/with-api-key`, { method: "POST", body: form(audio, name) }));
-  if (typeof r.text !== "string") throw new NkenneError("The transcript came back empty.", 200);
-  return { text: r.text, duration: typeof r.duration === "number" ? r.duration : null };
+  const r = await json<{ duration?: unknown }>(await send(cfg, `/api/stt/v1/${lang}/with-api-key`, { method: "POST", body: form(audio, name) }));
+  const text = textIn(r, ["text", "transcript", "transcription", ...TEXT_FIELDS]);
+  if (!text) throw new NkenneError("The transcript came back empty.", 502, JSON.stringify(r).slice(0, 300));
+  return { text, duration: typeof r.duration === "number" ? r.duration : null };
 }
 // What was said, in the other language, in one call.
 export async function translateSpeech(cfg: NkenneConfig, audio: Blob, pair: "swahili-to-english" | "english-to-swahili", name = "voice-note.wav"): Promise<string> {
-  const r = await json<{ translated_text?: unknown }>(await send(cfg, `/api/st/v1/${pair}/with-api-key`, { method: "POST", body: form(audio, name) }));
-  if (typeof r.translated_text !== "string") throw new NkenneError("The translation came back empty.", 200);
-  return r.translated_text;
+  return needText(await json<unknown>(await send(cfg, `/api/st/v1/${pair}/with-api-key`, { method: "POST", body: form(audio, name) })), ["translated_text", ...TEXT_FIELDS]);
 }

@@ -101,6 +101,6 @@ createServer(async (req, res) => {
     }
     send(res, 404, { error: "Not found" });
   } catch (e) {
-    send(res, e instanceof NkenneError && e.status ? (e.status >= 500 ? 502 : e.status) : 500, { error: e instanceof Error ? e.message : "Something went wrong." });
+    send(res, e instanceof NkenneError && e.status >= 400 ? (e.status >= 500 ? 502 : e.status) : e instanceof NkenneError ? 502 : 500, { error: e instanceof Error ? e.message : "Something went wrong." });
   }
 }).listen(Number(process.env.PORT || 3500), () => console.log(`NotesApp Kiswahili demo on http://localhost:${process.env.PORT || 3500}${KEY ? "" : " (set NKENNE_API_KEY in .env to make real calls)"}`));

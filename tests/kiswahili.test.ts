@@ -41,6 +41,10 @@ import { encodeWav, resample, wavSeconds } from "../src/wav";
   assert.deepEqual(JSON.parse(String(calls[0].init.body)), { text: "Hello", fromLanguage: "English", toLanguage: "Swahili" });
   await assert.rejects(translateText(cfg(fake(401, JSON.stringify({ error: "Unauthorized" }))), "Hi", "English", "Swahili"), (e: unknown) => e instanceof NkenneError && e.status === 401 && /refused our key/.test(e.message));
   await assert.rejects(translateText(cfg(fake(200, "<html>")), "Hi", "English", "Swahili"), /couldn't read/);
+  // other answer shapes are read; an answer with no text is a failure (502) that keeps what came back
+  for (const body of [{ translated_text: "Habari" }, { data: { translatedText: "Habari" } }, { result: "Habari" }, { translation: "Habari" }])
+    assert.equal(await translateText(cfg(fake(200, JSON.stringify(body))), "Hello", "English", "Swahili"), "Habari", JSON.stringify(body));
+  await assert.rejects(translateText(cfg(fake(200, JSON.stringify({ status: "ok", tokens: 3 }))), "Hi", "English", "Swahili"), (e: unknown) => e instanceof NkenneError && e.status === 502 && /came back empty/.test(e.message) && /tokens/.test(e.detail));
   await assert.rejects(translateText(cfg(fake(200, "{}")), "Hi", "English", "English"), /two different/);
   const sp = await speak(cfg(fake(200, new Uint8Array([1, 2, 3]), "audio/mpeg")), "Habari", "swahili_female_1");
   assert.equal(sp.type, "audio/mpeg"); assert.equal(sp.bytes.byteLength, 3);
